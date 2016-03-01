@@ -13,9 +13,11 @@ x+y
 
 print(params$my_name)
 
+# in_test <- data.table(params$my_name)
 in_test <- data.table(params$my_name)
 
-in_test [,V1 := as.character(V1)]
+
+# in_test [,V1 := as.character(V1)]
 ```
 
 ###this is a test

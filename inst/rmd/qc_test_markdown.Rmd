@@ -5,7 +5,7 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     theme: journal
-    css: "N:/general/sullivan/quality_control/table_of_contents.css"
+    css: system.file("rmd/table_of_contents.css", package="eatestpackage")
     toc: yes
 params:
   file_name: x

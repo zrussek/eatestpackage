@@ -1,0 +1,1002 @@
+---
+title: "QC on Assessment data"
+author: "Education Analytics"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: journal
+    css: "N:/general/sullivan/quality_control/table_of_contents.css"
+    toc: yes
+params:
+  file_name: x
+  opt_graphs: x
+  outlier_parm: x
+  missing_parm: x
+  duplicate_parm: x
+  
+---   
+
+---
+
+
+```{r, echo=FALSE, include=FALSE}
+
+######################################################################################
+# all qc code goes in this first chunck, all html output will be in the chunks below #
+######################################################################################
+
+# load packages 
+library(data.table)
+library(DT)
+library(easimple)
+library(gridExtra)
+library(ggplot2)
+
+# create copy of test data
+in_test <- copy(params$file_name)
+
+###################
+# save parameters #
+###################
+
+  # interval parameter
+  outlier_parm <- params$outlier_parm
+  
+  # duplicate parameter
+  dup_parm <- params$duplicate_parm
+
+  # threshold for % of missing...
+  missing_parm <- params$missing_parm
+  
+  # set colors
+  c_good    <- "white"
+  c_warning <- "#FFEB9C"
+  c_problem <- "#FFC7CE"
+
+#########################
+# 0. GENERAL FORMATTING #
+#########################
+  
+  # make test_scale_score and test_sem numeric
+  in_test[, test_scale_score := as.numeric(test_scale_score)]
+  in_test[, test_sem := as.numeric(test_sem)]
+  
+  # convert NA grades to 99
+  in_test[is.na(test_grade), test_grade:=99]
+  
+  # make test grade two characters
+  in_test[nchar(as.character(test_grade)) == 1 & !grepl("k", test_grade), test_grade := paste0(0, test_grade)]
+
+  ################
+  # create lists #
+  ################
+  
+  # list of years
+  year_list <- unique(in_test$test_school_year)
+  
+  # list of grades
+  grade_list <- unique(in_test$test_grade)
+  
+  # sort grade list low to high
+  grade_list <- sort(grade_list, decreasing=FALSE)
+  
+  # put k and pk on front end of list if they exists
+  if ( ("k" %chin% grade_list) & ("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("k", "pk"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("pk", "k", other_grades)}
+  
+  # put k on front end of list if they exists
+  if ( ("k" %chin% grade_list) & !("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("k"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("k", other_grades)}
+  
+  # put pk on front end of list if they exists
+  if ( !("k" %chin% grade_list) & ("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("pk"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("pk", other_grades)}
+
+  
+##########################
+# TABLE 1: GENERAL TABLE #
+##########################
+  
+  # .i. create general table 
+  general_table <- in_test[, list(total_n_obs       = .N,
+                                  n_unique_tests    = length(unique(ea_test_name)),
+                                  n_unique_students = length(unique(ea_student_id))),
+                           by="test_school_year"]
+  
+  # .ii. output n_exact duplicate rows
+  exact_dups <- ea_out_dups(in_test, opt_key_all = 1)
+  
+  # .ii. calcualte number of exact rows per year
+  exact_dups_table <- exact_dups[, list(exact_dup_row=.N), by="test_school_year"]
+  
+  # .ii. merge duplicate row info onto general table
+  general_table <- ea_merge(general_table, exact_dups_table, "test_school_year", "x")
+  
+  # .ii. create a % of duplicate rows
+  general_table[, perc_exact_dup_row := round((exact_dup_row/total_n_obs)*100, 2)]
+  
+   # .iii. make all NA values = 0
+  general_table[is.na(general_table)] <- 0
+  
+  # .iv. sort years from high to low
+  general_table <- general_table[order(-(test_school_year))]
+  
+  # .v. convert to datatable
+  general_table_dt <- datatable(general_table, rownames = FALSE, extensions = "KeyTable")
+
+  #######################################
+  # flag large disparities across years #
+  #######################################
+
+  ################################################
+  # check 1.1 -> outliers of total_n_obs by year #
+  ################################################
+
+  # set intervals
+  lower_int <- (mean(general_table$total_n_obs) - (mean(general_table$total_n_obs))*(outlier_parm))
+  upper_int <- (mean(general_table$total_n_obs) + (mean(general_table$total_n_obs))*(outlier_parm))
+
+  # apply color scheme
+  general_table_dt <- formatStyle(general_table_dt, columns = "total_n_obs", background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))
+  
+  # internal flag for general table
+  if ( (min(general_table$total_n_obs) < lower_int) | (max(general_table$total_n_obs) > upper_int)) {
+    general_table_flag <- 1
+  } else { 
+    general_table_flag <- 0}
+  
+  ###################################################
+  # check 1.2 -> outliers of n_unique_tests by year #
+  ###################################################
+  
+  # set intervals
+  lower_int <- (mean(general_table$n_unique_tests) - (mean(general_table$n_unique_tests))*(outlier_parm))
+  upper_int <- (mean(general_table$n_unique_tests) + (mean(general_table$n_unique_tests))*(outlier_parm))
+  
+  # apply color scheme
+  general_table_dt <- formatStyle(general_table_dt, columns = "n_unique_tests", background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))
+  
+  # internal flag for general table
+  if ( (min(general_table$n_unique_tests) < lower_int) | (max(general_table$n_unique_tests) > upper_int)) {general_table_flag <- 1}
+   
+  ######################################################
+  # check 1.3 -> outliers of n_unique_students by year #
+  ######################################################
+  
+  # set intervals
+  lower_int <- (mean(general_table$n_unique_students) - (mean(general_table$n_unique_students))*(outlier_parm))
+  upper_int <- (mean(general_table$n_unique_students) + (mean(general_table$n_unique_students))*(outlier_parm))
+  
+  # apply color scheme
+  general_table_dt <- formatStyle(general_table_dt, columns = "n_unique_students", background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))
+  
+  # internal flag for general table
+  if ( (min(general_table$n_unique_students) < lower_int) | (max(general_table$n_unique_students) > upper_int)) {general_table_flag <- 1}
+  
+  #########################################################################
+  # check 1.4 -> % of duplicate rows is higher than the missing threshold #
+  #########################################################################
+  
+  # apply color scheme to % exact duplicate row
+  general_table_dt <- formatStyle(general_table_dt, columns = "perc_exact_dup_row", background = styleInterval(c(0, dup_parm), c(c_good, c_warning, c_problem)))
+  
+  # internal flag for general table
+  if (sum(general_table$perc_exact_dup_row, na.rm = TRUE)!=0) {
+    
+    if ( (min(general_table$perc_exact_dup_row, na.rm = TRUE) > dup_parm)) {general_table_flag <- 1}
+  
+    }
+    
+
+
+####################################
+# TABLE 2: MISSING VARIABLES TABLE #
+####################################
+
+  # create a copy of in_test as a data.frame
+  missing_vars <- as.data.frame(copy(in_test))
+  
+  # subset test dataset to missing vars
+  missing_vars <-  missing_vars[sapply(missing_vars, function(x) all(is.na(x)))]
+  
+  # create list of all missing vars
+  miss_var_list <- colnames(missing_vars)
+  
+  # create data.table of remaining columns
+  miss_var_table <- as.data.table(colnames(in_test))
+  
+  # setnames
+  setnames(miss_var_table, "V1", "variable")
+  
+  # create a missing flag
+  miss_var_table[, missing := ifelse(variable %chin% miss_var_list, 1,0)]
+  
+  # datatable 
+  miss_var_dt <- datatable(miss_var_table, rownames = FALSE, extensions = "Scroller", options=list(deferRender=TRUE, scrollY=400, scrollCollapse=TRUE))
+
+  # apply color scheme: highlight missing vars
+  miss_var_dt <- formatStyle(miss_var_dt, columns = "missing", background = styleEqual(c(0, 1), c(c_good, c_problem)))
+
+  # check 2.1 -> internal flag for list of missing vars
+  if (length(miss_var_list)>0) {
+    missing_vars_flag <- 1
+  } else { missing_vars_flag <- 0}
+  
+  
+#################################
+# TABLE 3: MISSING DATA % TABLE #
+#################################
+  
+  # create table
+  missing_table <- in_test[, list(total_n_obs         = .N,
+                                  missing_student_id  = sum(is.na(ea_student_id)),
+                                  missing_scale_score = sum(is.na(test_scale_score)),
+                                  missing_test_sem    = sum(is.na(test_sem)),
+                                  missing_test_date   = sum(is.na(test_date)),
+                                  missing_test_term   = sum(is.na(test_term))),
+                           by="test_school_year"]
+  
+  # add %'s to table
+  missing_table[, perc_miss_stud_id     := round((missing_student_id/total_n_obs)*100, 2)]
+  missing_table[, perc_miss_scale_score := round((missing_scale_score/total_n_obs)*100, 2)]
+  missing_table[, perc_miss_test_sem    := round((missing_test_sem/total_n_obs)*100, 2)]
+  missing_table[, perc_miss_test_date   := round((missing_test_date/total_n_obs)*100, 2)]
+  missing_table[, perc_miss_test_term   := round((missing_test_term/total_n_obs)*100, 2)]
+  
+  # sort column order
+  ea_colorder(missing_table, c("test_school_year", "total_n_obs", "missing_student_id", "perc_miss_stud_id", "missing_scale_score", "perc_miss_scale_score",
+                               "missing_test_sem", "perc_miss_test_sem", "missing_test_date", "perc_miss_test_date", "missing_test_term", "perc_miss_test_term"))
+  
+  # sort years from high to low
+  missing_table <- missing_table[order(-(test_school_year))]
+
+  # the following code pre-hides the "extra" columns and allows you to open more if you want more info
+  missing_dt <- datatable(missing_table, rownames=FALSE, extensions = 'ColVis', options = list(columnDefs = list(list(targets = c(1,2,4,6,8,10), visible = FALSE)),
+                                                                                        dom = 'C<"clear">lfrtip'))
+
+
+  ##################################
+  # flag large %'s of missing data #
+  ##################################
+
+  # .i. check 3.1 -> 3.5 apply color scheme to all percent missings from "missing_table"
+  missing_dt <- formatStyle(missing_dt, columns = c("perc_miss_stud_id", "perc_miss_scale_score", "perc_miss_test_sem", "perc_miss_test_date", "perc_miss_test_term"),
+                            background = styleInterval(c(0, missing_parm), c(c_good, c_warning, c_problem)))
+  
+  # internal flag for missing table
+  if ( (max(missing_table$perc_miss_stud_id) > missing_parm) | (max(missing_table$perc_miss_scale_score) > missing_parm) |  
+       (max(missing_table$perc_miss_test_sem) > missing_parm) | (max(missing_table$perc_miss_test_date) > missing_parm) |  
+       (max(missing_table$perc_miss_test_term) > missing_parm)) {
+  
+      missing_table_flag <- 1
+    } else {
+      missing_table_flag <- 0}
+    
+
+################################
+# TABLE 4: ID ISSUES (BY TEST) #
+################################
+  
+  ####################################
+  # find total_n_obs per unique test #
+  ####################################
+  
+  # create table of total count per unique test
+  students_per_test <-  ea_table(in_test, c("ea_test_name", "site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"))
+  
+  # count -> total_n_obs
+  setnames(students_per_test, "count", "total_n_obs")
+  
+  ##########################################
+  # find n_unique_students per unique test #
+  ##########################################
+  
+  # find n_unique_students
+  sub_test <- ea_no_dups(in_test, c("ea_student_id", "ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"))
+  
+  # make table
+  unique_studs <-  ea_table(sub_test, c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"))
+  
+  # setnames
+  setnames(unique_studs, "count", "n_unique_students")
+  
+  # merge onto original table
+  students_per_test <- ea_merge(students_per_test, unique_studs, c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"), "x")
+  
+  #######################################################
+  # find n_duplicate_students (overall) per unique test #
+  #######################################################
+  
+  # find number of duplicate students per test
+  dup_studs <- ea_out_dups(in_test, c("ea_student_id", "ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"))
+  
+  # count dups
+  dup_studs_table <- dup_studs[, list(n_dup_studs=.N), by=c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year")]
+  
+  # merge onto original table
+  students_per_test <- ea_merge(students_per_test, dup_studs_table, c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"), "x")
+  
+  # convert NA values to zeroes
+  students_per_test[is.na(n_dup_studs), n_dup_studs:=0]
+  
+  ############################################################
+  # find n_duplicate_students that have the same scale score #
+  ############################################################
+  
+  # find number of duplicate students with the same scale scores
+  dup_studs_same_ss <- ea_out_dups(dup_studs, c("ea_student_id", "ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", 
+                                                "test_term", "test_school_year", "test_scale_score"))
+  
+  # count dups
+  same_ss_table <- dup_studs_same_ss[, list(n_dup_studs_same_ss=.N), by=c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year")]
+  
+  # merge onto original table
+  students_per_test <- ea_merge(students_per_test, same_ss_table, c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year"), "x")
+  
+  # convert NA values to zeroes
+  students_per_test[is.na(n_dup_studs_same_ss), n_dup_studs_same_ss:=0]
+  
+  ##############################################################
+  # find n_duplicate_students that have different scale scores #
+  ##############################################################
+  
+  # subset dup studs to just test, student and score
+  dup_studs <- subset(dup_studs, select = c("ea_test_name","site_test_abbrev", "ea_test_subject", "test_grade", "test_term", "test_school_year","ea_student_id", "test_scale_score"))
+  
+  # create column with # of times the scale score appears
+  diff_ss <- dup_studs[,list(n_scale_score=.N),by=c("ea_test_name" ,"ea_student_id", "test_scale_score")]
+  
+  # count the number of times a certain test appears {{with more than one score}}
+  diff_ss <- diff_ss[,list(n_dup_studs_diff_ss=.N),by=c("ea_test_name")]
+  
+  # merge the # of duplicate studs with non-matching scale scores onto table
+  students_per_test <- ea_merge(students_per_test, diff_ss, "ea_test_name", "x")
+  
+  # convert NA values to zeroes
+  students_per_test[is.na(n_dup_studs_diff_ss), n_dup_studs_diff_ss:=0]
+  
+  ##############
+  # create %'s #
+  ##############
+  
+  # % of unique ids
+  students_per_test[, perc_unique_studs := round((n_unique_students/total_n_obs)*100, 2)]
+  
+  # % of dup ids
+  students_per_test[, perc_dup_studs := round((n_dup_studs/total_n_obs)*100, 2)]
+
+  # % of dup ids diff ss
+  students_per_test[, perc_dup_studs_diff_ss := round((n_dup_studs_diff_ss/total_n_obs)*100, 2)]
+  
+  ##########
+  # format #
+  ##########
+  
+   # the following code pre-hides the "extra" columns and allows you to open more if you want more info
+   students_per_test_dt <- datatable(students_per_test, rownames=FALSE, extensions = c('ColVis', 'FixedHeader'), 
+                                      options = list(columnDefs = list(list(targets = c(1,2,3,4,5,6,7,8,9,10), visible = FALSE)), dom = 'C<"clear">lfrtip'))
+
+  #########################################
+  # flag large # of duplicate student ids #
+  #########################################
+    
+  # .i. flag 4.1 -> perc_unique_studs less than 99%
+  students_per_test_dt <- formatStyle(students_per_test_dt, columns = c("perc_unique_studs"), background = styleInterval(c(95,99), c(c_problem, c_warning, c_good)))
+  
+  # .ii. flags 4.2 - 4.3 -> perc_dup_studs greater than 5% and perc_dup_studs_diff_ss greater than 5%
+  students_per_test_dt <- formatStyle(students_per_test_dt, columns = c("perc_dup_studs", "perc_dup_studs_diff_ss"), 
+                                      background = styleInterval(c(1, dup_parm), c(c_good, c_warning, c_problem)))
+   
+  # .i. internal flag for 4.1
+  if ( (min(students_per_test$perc_unique_studs) < 99 )) {
+    
+    students_per_test_flag <- 1
+  } else {
+    students_per_test_flag <- 0}
+  
+  # .ii. internal flag for 4.2 - 4.3
+  if ( (max(students_per_test$perc_dup_studs) > dup_parm) | (max(students_per_test$perc_dup_studs_diff_ss) > dup_parm)) {students_per_test_flag <- 1}
+  
+
+#########################################
+# TABLE 5: STUDENTS PER GRADE (BY TEST) #
+#########################################
+
+  # remove duplicate students
+  sub_test <- ea_no_dups(in_test, c("ea_student_id", "ea_test_name"))
+  
+  # create table with grade
+  students_per_grade <-  ea_table(sub_test, c("site_test_abbrev", "ea_test_subject", "test_grade", "test_school_year", "test_term"))
+  
+  # put wide
+  students_per_grade <- data.table(dcast(students_per_grade, site_test_abbrev + ea_test_subject + test_school_year + test_term ~ test_grade, value.var = "count"))
+  
+  # create table without grade (count=# of students in that model, not accounting for grade) 
+  sum_grades <-  ea_table(sub_test, c("site_test_abbrev", "ea_test_subject", "test_school_year", "test_term"))
+  
+  # setnames
+  setnames(sum_grades, "count", "n_total")
+  
+  # merge together
+  students_per_grade <- ea_merge(students_per_grade, sum_grades, c("site_test_abbrev", "ea_test_subject", "test_school_year", "test_term"))
+  
+   # make column name grade "missing" if it exists
+  if ("99" %chin% grade_list) {setnames(students_per_grade, "99", "missing")}
+  
+  # create new grade_list
+  grade_list_t5 <- copy(grade_list)
+  
+  # replace "99" with "missing" for new grade list
+  if ("99" %chin% grade_list_t5) {grade_list_t5 <- gsub("99", "missing", grade_list)}
+
+  ##############################################
+  # create column with number of missing years #
+  ##############################################
+  
+  # set n_no_students to zero
+  students_per_grade[, n_no_students:=0]
+  
+  # loop over years and create zero_"grade" columns
+  for (grade in grade_list_t5) {
+    
+    # create column that indicates if this grade has zero students
+    students_per_grade[, zero_students:=ifelse(get(grade)==0, 1, 0)]
+    
+    # add zero_students onto n_no_students
+    students_per_grade[, n_no_students:= n_no_students + zero_students]}
+  
+  # drop zero students flag
+  students_per_grade[, zero_students:=NULL]
+
+  
+  ############################################
+  # create max/min/mean for each grade level #
+  ############################################
+
+  # set max/min/flag_missing_grade to zero
+  students_per_grade[, flag_missing_grade:=0]
+  students_per_grade[, max:=0]
+  students_per_grade[, min:=0]
+  
+  # save "first_grade" in list
+  first_grade <- grade_list_t5[1]
+  
+  # loop over grade_list
+  for (grade in grade_list_t5) {
+    
+    # flag missing grade of data if grade==0
+    students_per_grade[flag_missing_grade==0, flag_missing_grade:=ifelse(get(grade)==0, 1, 0)]
+    
+    # set first grade to be equal to the max and the min
+    if(grade==first_grade) {students_per_grade[,max:=get(grade)]
+                            students_per_grade[,min:=get(grade)]}
+    
+    # for all other grades...
+    if(grade!=first_grade) {
+      
+      # create a comparison size column
+      students_per_grade[, comp_size:=get(grade)]
+      
+      # if comp_size is bigger than the current max, overwrite
+      students_per_grade[comp_size > max, max:=get(grade)]
+      
+      # if comp_size is smaller than the current min, overwrite { OR if min is still zero, reset the minimum to this new value}
+      students_per_grade[( ((comp_size < min) & comp_size!=0) | min==0), min:=get(grade)]
+      
+    }
+  }
+  
+  # save the number of grades
+  n_grades <- length(grade_list_t5)
+  
+  # if a missing grade exists, subtract it
+  if("missing" %chin% grade_list_t5) {n_grades <- n_grades -1 }
+  
+  # create mean
+  students_per_grade[,mean_with_students:= (n_total / (n_grades-n_no_students))]
+  
+  #######################
+  # implement flag rule #
+  #######################
+  
+  # set flag to zero
+  students_per_grade[ , large_disparity:=0]
+  
+  # brule
+  students_per_grade[ (max >= (mean_with_students + outlier_parm*(mean_with_students))) | 
+                        (min <= (mean_with_students - outlier_parm*(mean_with_students))), large_disparity:=1]
+  
+  ################
+  # format table #
+  ################
+  
+  # get rid of comp_size/mean
+  students_per_grade[, comp_size:=NULL]
+  students_per_grade[, mean_with_students:=NULL]
+  students_per_grade[, n_no_students:=NULL]
+
+  # column order
+  ea_colorder(students_per_grade, c("site_test_abbrev", "ea_test_subject", "test_school_year", "test_term", grade_list_t5, "large_disparity", "flag_missing_grade", "n_total"))
+  
+  ############################################
+  # convert to datatable and highlight flags #
+  ############################################
+  
+  # the following code hides n_total, max, min
+  students_per_grade_dt <- datatable(students_per_grade, rownames=FALSE, extensions = c('ColVis', 'FixedHeader'), 
+                                     options = list(columnDefs = list(list(targets = c(-1,-2,-3), visible = FALSE)), dom = 'C<"clear">lfrtip'))
+  
+  # check 5.1 -> highlight cells where large_disparity flag is 1
+  students_per_grade_dt <- formatStyle(students_per_grade_dt, columns = c("large_disparity", "flag_missing_grade"), background = styleEqual(c(0, 1), c(c_good, c_problem)))
+  
+  # internal flag 5.1
+  if ( sum(students_per_grade$large_disparity)>0) {
+    
+    students_per_grade_flag <- 1
+  } else { 
+    students_per_grade_flag <- 0}
+  
+  # internal flag 5.2
+  if (sum(students_per_grade$flag_missing_grade, na.rm = TRUE)!=0) {
+    
+    if(sum(students_per_grade$flag_missing_grade, na.rm = TRUE)>0) {students_per_grade_flag <- 1}
+    
+  }
+  
+
+#########################################
+# TABLE 6: STUDENTS PER YEAR (BY TEST) #
+#########################################
+  
+  # remove duplicate students
+  sub_test <- ea_no_dups(in_test, c("ea_student_id", "ea_test_name"))
+  
+  # create table with grade
+  within_grade_comp <-  sub_test[, list(site_test_abbrev=site_test_abbrev, ea_test_subject=ea_test_subject, test_grade=test_grade, test_term=test_term),by="test_school_year"]
+  
+  # put wide
+  within_grade_comp <- data.table(dcast(within_grade_comp, site_test_abbrev + ea_test_subject + test_grade + test_term ~ test_school_year))
+  
+  # calculate n_total
+  within_grade_total <- ea_table(sub_test, c("site_test_abbrev", "ea_test_subject", "test_grade", "test_term"))
+  
+  # merge on total
+  within_grade_comp <- ea_merge(within_grade_comp, within_grade_total, c("site_test_abbrev", "ea_test_subject", "test_grade", "test_term"))
+  
+  # setkey
+  setkey(within_grade_comp, site_test_abbrev, ea_test_subject, test_grade, test_term)
+  
+  ##############################################
+  # create column with number of missing years #
+  ##############################################
+  
+  # set n_no_students to zero
+  within_grade_comp[, n_no_students:=0]
+  
+  # loop over years and create zero_"year" columns
+  for (year in year_list) {
+  
+    # create column that indicates if this year has zero students
+    within_grade_comp[, zero_students:=ifelse(get(year)==0, 1, 0)]
+  
+    # add zero_students onto n_no_students
+    within_grade_comp[, n_no_students:= n_no_students + zero_students]}
+  
+  # drop zero students flag
+  within_grade_comp[, zero_students:=NULL]
+  
+  ############################################
+  # create max/min/mean for each grade level #
+  ############################################
+  
+  # set max/min/flag_missing_year to zero
+  within_grade_comp[, flag_missing_year:=0]
+  within_grade_comp[, max:=0]
+  within_grade_comp[, min:=0]
+  
+  # save "first_year" in list
+  first_year <- year_list[1]
+  
+  # loop over grade_list
+  for (year in year_list) {
+    
+    # flag missing year of data if year==0
+    within_grade_comp[flag_missing_year==0, flag_missing_year:=ifelse(get(year)==0, 1, 0)]
+  
+    # set first year to be equal to the max and the min 
+    if(year==first_year) {within_grade_comp[,max:=get(year)]
+                          within_grade_comp[,min:=get(year)]}
+    
+    # for all other grades...
+    if(year!=first_year) {
+  
+      # create a comparison size column
+      within_grade_comp[, comp_size:=get(year)]
+  
+      # if comp_size is bigger than the current max, overwrite
+      within_grade_comp[comp_size > max, max:=get(year)]
+  
+      # if comp_size is smaller than the current min, overwrite { OR if min is still zero, reset the minimum to this new value}
+      within_grade_comp[( ((comp_size < min) & comp_size!=0) | min==0), min:=get(year)]
+  
+    }
+  }
+  
+  # save the number of years
+  n_years <- length(year_list)
+  
+  # create mean
+  within_grade_comp[,mean_with_students:= (count / (n_years-n_no_students))]
+
+  #######################
+  # implement flag rule #
+  #######################
+  
+  # set flag to zero
+  within_grade_comp[ , large_disparity:=0]
+  
+  # brule
+  within_grade_comp[ (max >= (mean_with_students + outlier_parm*(mean_with_students))) | (min <= (mean_with_students - outlier_parm*(mean_with_students))), large_disparity:=1]
+
+
+  ################
+  # format table #
+  ################
+  
+  # get rid of vars
+  within_grade_comp[, comp_size:=NULL]
+  within_grade_comp[, mean_with_students:=NULL]
+  within_grade_comp[, n_no_students:=NULL]
+  within_grade_comp[, count:=NULL]
+  
+  # column order
+  ea_colorder(within_grade_comp, c("site_test_abbrev", "ea_test_subject", "test_grade", "test_term", year_list, "large_disparity", "flag_missing_year"))
+  
+
+  ############################################
+  # convert to datatable and highlight flags #
+  ############################################
+  
+  # the following code hides n_total, max, min
+  within_grade_dt <- datatable(within_grade_comp, rownames=FALSE, extensions = c('ColVis', 'FixedHeader'), 
+                               options = list(columnDefs = list(list(targets = c(-1,-2), visible = FALSE)),dom = 'C<"clear">lfrtip'))
+  
+  # check 6.1 -> highlight cells where large_disparity flag is 1
+  within_grade_dt <- formatStyle(within_grade_dt, columns = c("large_disparity", "flag_missing_year"), background = styleEqual(c(0, 1), c(c_good, c_problem)))
+  
+  # internal flag 6.1
+  if ( sum(within_grade_dt$large_disparity)>0) {
+  
+    within_grade_flag <- 1
+  } else {
+    within_grade_flag <- 0}
+  
+  # internal flag 6.2
+  if(sum(within_grade_comp$flag_missing_year)>0) {within_grade_flag <- 1}
+
+
+  
+#######################################
+# TABLE 7: SCALE SCORE INFO (BY TEST) #
+#######################################
+
+    # add flag for missing ss
+    in_test[, flag_ss_missing:= ifelse(is.na(test_scale_score), 1, 0)]
+
+    # find min, max, mean, sd by unique test
+    ss_model_stats <- in_test[, list(n_obs   = .N,
+                                     ss_min  = min(test_scale_score, na.rm = TRUE),
+                                     ss_max  = max(test_scale_score, na.rm = TRUE),
+                                     ss_mean = round(mean(test_scale_score, na.rm = TRUE)),
+                                     ss_sd   = round(sd(test_scale_score, na.rm = TRUE)),
+                                     n_missing_ss = sum(flag_ss_missing),
+                                     perc_missing_ss = round(mean(flag_ss_missing)*100,2)),
+                                     by = c("ea_test_name", "site_test_abbrev", "ea_test_subject", "test_grade", "test_school_year", "test_term")]
+    
+    # set column order
+    setkey(ss_model_stats, ea_test_subject, test_grade, test_school_year, test_term)
+
+    # sort years from high to low
+    ss_model_stats <- ss_model_stats[order(-(test_school_year))]
+    
+    # convert to DT
+    ss_model_stats_dt <- datatable(ss_model_stats, rownames=FALSE, extensions = c('ColVis', 'FixedHeader'), 
+                                   options = list(columnDefs = list(list(targets = c(1,2,3,4,5,6,11), visible = FALSE)),dom = 'C<"clear">lfrtip'))
+
+    #################
+    # flag problems #
+    #################
+
+    # .i. flag 7.1 -> perc_missing_ss more than 2.5%
+    ss_model_stats_dt <- formatStyle(ss_model_stats_dt, columns = c("perc_missing_ss"), background = styleInterval(c(.001,missing_parm), c(c_good, c_warning, c_problem)))
+    
+    # .i. internal flag for 7.1
+    if ( (max(ss_model_stats_dt$perc_missing_ss) > 2.5 )) {
+      
+      ss_model_stats_flag <- 1
+    } else {
+      ss_model_stats_flag <- 0}
+    
+     
+    
+#########################
+# HISTOGRAMS SS and SEM #
+#########################
+  
+  # create empty list
+  test_hist_list <- list()
+  
+  # create list of unique tests
+  model_list <- unique(in_test$ea_test_name)
+  
+  # loop over models to histogram and sum stat
+  for (m in 1 : length(model_list)){
+    
+    # define model
+    m_model_list <- model_list[m]
+    
+    # subset in_test
+    m_test <- subset(in_test, ea_test_name == m_model_list, select = c("ea_student_id", "test_scale_score", "test_sem"))
+    
+    # put long
+    m_test_long <- melt(m_test, "ea_student_id", c("test_scale_score", "test_sem"))
+    
+    # histogram
+    h <- ggplot(m_test_long, aes(value)) + geom_histogram() + facet_wrap(~ variable, ncol = 1, scale="free")
+    h <- h + ggtitle(paste0("scale score and sem  ", m_model_list))
+    
+    # save to list
+    test_hist_list[[m_model_list]] <- h
+    
+  }
+
+
+##################
+# to be added....#
+##################
+  
+# across grades/years/terms Cohort info for students, flag potential issues  
+  
+# Missing data 
+  # need to differentiate between mandatory variables and optional vars
+
+# ID issues
+  # notify when more than one student ID exists in raw data, which to use
+  # if both state/local ids exist, analyze their uniqueness & overlap
+  # Check for bad id's
+    # non alpha-numeric numbers
+    # leading zeroes
+    # scientific notation
+
+# By school info
+  # grade spans per school & year
+    # check for missing grades, weird spans, large changes
+  
+  # number of students per school & year
+    # by school
+    # by school and grade
+    # flag any large changes in n-sizes at a school across years
+  
+
+  # an overall flag for whether or nor the headings "flagged/unflagged should appear aka...is anything flagged?" -->
+
+
+
+```
+
+<br>
+
+
+## Flagged Checks
+*Below are all the the quality control checks that have been flagged for possible problems*
+
+<br>
+
+
+`r if (general_table_flag==1) '### general table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##########################
+# table 1: general table #
+##########################
+
+if (general_table_flag==1){  general_table_dt}
+
+```
+
+<br>
+
+`r if (missing_vars_flag==1) '### missing variables' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 2: missing variables #
+##############################
+
+if (missing_vars_flag==1) {miss_var_dt}
+
+```
+
+<br>
+
+`r if (missing_table_flag==1) '### missing data percentages' `
+```{r, echo = FALSE,  fig.align='left', fig.width=10, comment=NULL}
+
+###############################
+# table 3: missing data table #
+###############################
+
+if (missing_table_flag==1) {missing_dt}
+
+```
+
+<br>
+
+`r if (students_per_test_flag==1) '### ID issues (by test)' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+################################
+# table 4: ID issues (by test) #
+################################
+
+if (students_per_test_flag==1) {students_per_test_dt}
+
+```
+
+<br>
+
+`r if (students_per_grade_flag==1) '### students per grade (by test)' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+#########################################
+# table 5: students per grade (by test) #
+#########################################
+
+if (students_per_grade_flag==1) {students_per_grade_dt}
+
+```
+
+<br>
+
+`r if (within_grade_flag==1) '### students per year (by test) ' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+########################################
+# table 6: students per year (by test) #
+########################################
+
+if (within_grade_flag==1) {within_grade_dt}
+
+```
+
+<br>
+
+`r if (ss_model_stats_flag==1) '### scale score table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 7: scale score table # 
+##############################
+
+if (ss_model_stats_flag==1) {ss_model_stats_dt}
+
+```
+
+
+<br>
+<br>
+
+## Unflagged Checks
+*Below are all the the qc_checks that were not flagged for possible problems*
+
+
+
+`r if (general_table_flag==0) '### general table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##########################
+# table 1: general table #
+##########################
+
+if (general_table_flag==0){  general_table_dt}
+
+```
+
+<br>
+
+`r if (missing_vars_flag==0) '### missing variables' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 2: missing variables #
+##############################
+
+if (missing_vars_flag==0) {miss_var_dt}
+
+```
+
+<br>
+
+`r if (missing_table_flag==0) '### missing data percentages' `
+```{r, echo = FALSE,  fig.align='left', fig.width=10, comment=NULL}
+
+###############################
+# table 3: missing data table #
+###############################
+
+if (missing_table_flag==0) {missing_dt}
+
+```
+
+<br>
+
+`r if (students_per_test_flag==0) '### ID issues (by test)' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+################################
+# table 4: ID issues (by test) #
+################################
+
+if (students_per_test_flag==0) {students_per_test_dt}
+
+```
+
+<br>
+
+`r if (students_per_grade_flag==0) '### students per grade (by test) ' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+#########################################
+# table 5: students per grade (by test) #
+#########################################
+
+if (students_per_grade_flag==0) {students_per_grade_dt}
+
+```
+
+<br>
+
+`r if (within_grade_flag==0) '### students per year (by test) ' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+########################################
+# table 6: students per year (by test) #
+########################################
+
+if (within_grade_flag==0) {within_grade_dt}
+
+```
+
+<br>
+
+`r if (ss_model_stats_flag==0) '### scale score table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 7: scale score table # 
+##############################
+
+if (ss_model_stats_flag==0) {ss_model_stats_dt}
+
+```
+
+
+
+## Histograms
+```{r, echo = FALSE,  warning = FALSE, message = FALSE, fig.align='center', fig.width=10, comment=NULL}
+
+# only print graphs if option is turned on
+if (params$opt_graphs==1) {print(test_hist_list)}
+if (params$opt_graphs==0) {message("The option to print histograms with scale score and test sem distributions has been turned off")}
+
+
+```
+
+
+

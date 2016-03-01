@@ -13,7 +13,7 @@ x+y
 
 print(params$my_name)
 
-in_test <- as.data.table(params$my_name)
+in_test <- data.table(params$my_name)
 
 in_test [,V1 := as.character(V1)]
 ```

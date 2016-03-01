@@ -7,6 +7,7 @@ output:
     theme: journal
     css: system.file("rmd/table_of_contents.css", package="eatestpackage")
     toc: yes
+    self_contained: no
 params:
   file_name: x
   opt_graphs: x

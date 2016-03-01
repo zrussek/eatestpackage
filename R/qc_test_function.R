@@ -24,7 +24,7 @@ qc_test_html <- function(
   
 { 
   # create html and input parms
-  rmarkdown::render(input = "N:/general/sullivan/quality_control/qc_test_markdown.Rmd",
+  rmarkdown::render(input = system.file("rmd/qc_test_markdown.Rmd", package="eatestpackage"),
                     params = list(
                       file_name     = formatted_test_name,
                       opt_graphs    = opt_print_histograms,

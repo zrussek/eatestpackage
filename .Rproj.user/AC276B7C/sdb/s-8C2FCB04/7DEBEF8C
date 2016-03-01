@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "exportPattern(\"^[[:alpha:]]+\")\n\n\nimport(data.table)\nimport(DT)\nimport(easimple)\nimport(gridExtra)\nimport(ggplot2)\n",
+    "created" : 1456872199390.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2708045735",
+    "id" : "7DEBEF8C",
+    "lastKnownWriteTime" : 1456872299,
+    "last_content_update" : 1456872299301,
+    "path" : "~/GitHub/eatestpackage/NAMESPACE",
+    "project_path" : "NAMESPACE",
+    "properties" : {
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_namespace"
+}

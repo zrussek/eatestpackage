@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "Package: eatestpackage\nType: Package\nTitle: What the Package Does (Title Case)\nVersion: 0.1.0\nAuthor: Who wrote it\nMaintainer: Who to complain to <yourfault@somewhere.net>\nDescription: More about what it does (maybe more than one line)\nLicense: What license is it under?\nLazyData: TRUE\nimports: data.table,DT,easimple,gridExtra,ggplot2\n",
+    "created" : 1456871110199.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2102302358",
+    "id" : "BAB652D",
+    "lastKnownWriteTime" : 1456872400,
+    "last_content_update" : 1456872400468,
+    "path" : "~/GitHub/eatestpackage/DESCRIPTION",
+    "project_path" : "DESCRIPTION",
+    "properties" : {
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "dcf"
+}

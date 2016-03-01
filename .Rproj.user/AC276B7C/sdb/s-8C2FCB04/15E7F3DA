@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "################################################################\n# Notes:                                                       #\n# \t- purpose: this is an outline for the ea_test_qc_funtion   #\n#                                                              #\n#   - keywords: #brule #check #remove                          #  \n################################################################\n\n\n\n###################\n# define function #\n###################\n\nqc_test_html <- function(\n  \n  formatted_test_name=NULL,\n  opt_print_histograms=1,\n  outlier_decimal=.25,\n  missing_percentage=5,\n  duplicate_percentage=5,\n  html_name_location=NULL)\n  \n  \n  \n{ \n  # create html and input parms\n  rmarkdown::render(input = system.file(\"rmd/qc_test_markdown.Rmd\", package=\"eatestpackage\"),\n                    params = list(\n                      file_name     = formatted_test_name,\n                      opt_graphs    = opt_print_histograms,\n                      outlier_parm  = outlier_decimal,\n                      missing_parm  = missing_percentage,\n                      duplicate_parm= duplicate_percentage),\n                    clean = TRUE,\n                    output_file   = html_name_location)\n  \n}\n\n\n# # example\n# qc_test_html(\n# \n#   formatted_test_name = formatted_test_review,\n#   html_name_location  = \"N:/general/sullivan/quality_control/test_example.html\"\n# \n# )\n# #                       \n  \n  \n  \n  \n  \n  \n  \n  \n  \n\n\n\n\n\n\n\n\n\n",
+    "created" : 1456872415611.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "493311803",
+    "id" : "15E7F3DA",
+    "lastKnownWriteTime" : 1456868181,
+    "last_content_update" : 1456868181,
+    "path" : "~/GitHub/eatestpackage/R/qc_test_function.R",
+    "project_path" : "R/qc_test_function.R",
+    "properties" : {
+    },
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "\ntest_rmd <- function(my_name = NULL, html_name_location = NULL)\n{\n  # create html and input parms\n  rmarkdown::render(input = system.file(\"rmd/test_html.Rmd\", package=\"eatestpackage\"),#\"N:/general/sullivan/quality_control/qc_test_markdown.Rmd\",\n                    params = list(my_name = my_name),\n                    clean = TRUE,\n                    output_file   = html_name_location)\n\n}\n\n\n",
+    "created" : 1456872417231.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1857411956",
+    "id" : "A664150B",
+    "lastKnownWriteTime" : 1456872420,
+    "last_content_update" : 1456872420807,
+    "path" : "~/GitHub/eatestpackage/R/test_rmd_func.R",
+    "project_path" : "R/test_rmd_func.R",
+    "properties" : {
+    },
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

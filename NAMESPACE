@@ -1,1 +1,8 @@
 exportPattern("^[[:alpha:]]+")
+
+
+import(data.table)
+import(DT)
+import(easimple)
+import(gridExtra)
+import(ggplot2)

@@ -1,4 +1,3 @@
-library(data.table)
 
 test_rmd <- function(my_name = NULL, html_name_location = NULL)
 {

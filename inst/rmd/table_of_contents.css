@@ -1,0 +1,18 @@
+# Places the TOC on the left side of the page and makes it interactive as well 
+{
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 200px;
+  height: 100%;
+  overflow:auto;
+}
+
+# The following code prevents the TOC from overalapping the html output (which happens when the window you are viewing the output is small). 
+# It centers the TOC
+#body {
+  #max-width: 800px;
+  #margin: auto;
+  #margin-left:210px;
+  #line-height: 20px;
+#}

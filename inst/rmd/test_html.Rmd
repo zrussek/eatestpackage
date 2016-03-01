@@ -1,0 +1,18 @@
+---
+title: "test_html"
+output: html_document
+params:
+  my_name: x
+---
+
+```{r}
+
+y <- 1
+x <- 2
+x+y
+
+print(params$my_name)
+```
+
+###this is a test
+*this is just a test*

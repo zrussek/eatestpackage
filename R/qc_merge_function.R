@@ -11,14 +11,13 @@
 # define function #
 ###################
 
-qc_test_html <- function(
+qc_merge_html <- function(
   
-  formatted_test_name=NULL,
-  opt_print_histograms=1,
-  outlier_decimal=.25,
-  missing_percentage=5,
-  duplicate_percentage=5,
-  html_name_location=NULL)
+  in_data_dems=NULL,
+  in_data_link=NULL,
+  in_data_test=NULL,
+  in_val_outlier_decimal=.25,
+  out_html_name_location=NULL)
   
   
   
@@ -27,21 +26,20 @@ qc_test_html <- function(
   ################################
   # running on personal computer #
   ################################
+
     
    # create html and input parms
-  rmarkdown::render(input = system.file("rmd/qc_test_markdown.Rmd", package="eatestpackage"),
+  rmarkdown::render(input = system.file("rmd/qc_merge_markdown.Rmd", package="eatestpackage"),
                     params = list(
-                      file_name     = formatted_test_name,
-                      opt_graphs    = opt_print_histograms,
-                      outlier_parm  = outlier_decimal,
-                      missing_parm  = missing_percentage,
-                      duplicate_parm= duplicate_percentage),
+                      dems_name     = in_data_dems,
+                      link_name     = in_data_link,
+                      test_name     = in_data_test,
+                      outlier_parm  = in_val_outlier_decimal),
                     clean = TRUE,
-                    output_file   = html_name_location)
+                    output_file   = out_html_name_location)
     
     
 }
-  
 
 
 

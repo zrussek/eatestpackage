@@ -1,0 +1,691 @@
+---
+title: "Merge QC on Demographics & Linkage & Test data"
+author: "Education Analytics"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: journal
+    toc: yes
+    self_contained: no
+params:
+  test_name: x
+  link_name: x
+  dems_name: x
+  outlier_parm: x
+  grade_parm: x
+  year_parm: x
+
+---   
+
+---
+
+
+```{r, echo=FALSE, include=FALSE}
+
+######################################################################################
+# all qc code goes in this first chunck, all html output will be in the chunks below #
+######################################################################################
+
+# load packages 
+library(data.table)
+library(DT)
+library(easimple)
+library(dplyr)
+library(gridExtra)
+library(ggplot2)
+
+# create copy of data
+in_test <- copy(params$test_name)
+in_link <- copy(params$link_name)
+in_dems <- copy(params$dems_name)
+
+###################
+# save parameters #
+###################
+
+  # interval parameter
+  outlier_parm <- params$outlier_parm
+  
+  # grade option
+  opt_grades <- params$grade_parm
+  
+  # year option
+  opt_years <- params$year_parm
+  
+  # set colors
+  c_good    <- "white"
+  c_warning <- "#FFEB9C"
+  c_problem <- "#FFC7CE"
+  
+###############
+# format data #
+###############
+
+  # subset datasets to student_id, grade, year 
+  test <- subset(in_test, select = c("ea_student_id", "test_grade", "test_school_year"))
+  dems <- subset(in_dems, select = c("ea_student_id", "student_grade", "demo_school_year"))
+  link <- subset(in_link, select = c("ea_student_id", "student_grade", "link_school_year"))
+
+  # add test type to data
+  test[, data_type := "test"]
+  dems[, data_type := "dems"]
+  link[, data_type := "link"]
+  
+  # setnames
+  setnames(test, c("test_grade", "test_school_year"), c("grade", "year"))
+  setnames(dems, c("student_grade", "demo_school_year"), c("grade", "year"))
+  setnames(link, c("student_grade", "link_school_year"), c("grade", "year"))
+
+  # remove exact dups
+  test <- ea_no_dups(test)
+  dems <- ea_no_dups(dems)
+  link <- ea_no_dups(link)
+
+  #####################
+  # find missing vars #
+  #####################
+  
+    # create a copy of in_data as a data.frame
+    missing_test <- as.data.frame(copy(test))
+    missing_dems <- as.data.frame(copy(dems))
+    missing_link <- as.data.frame(copy(link))
+  
+    # subset test dataset to missing vars
+    missing_test <-  missing_test[sapply(missing_test, function(x) all(is.na(x)))]
+    missing_dems <-  missing_dems[sapply(missing_dems, function(x) all(is.na(x)))]
+    missing_link <-  missing_link[sapply(missing_link, function(x) all(is.na(x)))]
+  
+    # create list of all missing vars
+    missing_test <- colnames(missing_test)
+    missing_dems <- colnames(missing_dems)
+    missing_link <- colnames(missing_link)
+
+  ########################################################
+  # subset data if opt_grades and opt_years are NOT null #
+  ########################################################
+    
+    # subset grades if...
+    if (opt_grades != "x"){
+      
+      # subset data
+      if (!("grade" %chin% missing_test)) {test <- subset(test, grade %chin% opt_grades)}
+      if (!("grade" %chin% missing_link)) {link <- subset(link, grade %chin% opt_grades)}
+      if (!("grade" %chin% missing_dems)) {dems <- subset(dems, grade %chin% opt_grades)}
+
+    }
+    
+    # subset year if...
+    if (opt_years != "x"){
+      
+      # subset data
+      if (!("year" %chin% missing_test)) {test <- subset(test, year %chin% opt_years)}
+      if (!("year" %chin% missing_link)) {link <- subset(link, year %chin% opt_years)}
+      if (!("year" %chin% missing_dems)) {dems <- subset(dems, year %chin% opt_years)}
+
+    }
+    
+  # stack together
+  sub_data <- rbind(test, dems, link)
+  
+
+##################################################################
+# Tables 1-3: n_unique_students by Grade & Year ( and data_type) #
+##################################################################
+    
+  #################
+  # create tables #
+  #################
+  
+    # count n_students
+    table_1_all <- sub_data[, list(n_students = .N), by = c("grade", "year", "data_type")]
+    
+    # cast wide
+    table_1_all <- dcast.data.table(table_1_all, data_type + year ~ grade, value.var = "n_students")
+    
+    # convert NA's to zero
+    table_1_all[is.na(table_1_all)] <- 0
+    
+    # if missing grade exists, change to "missing" (not NA)
+    if ("NA" %chin% colnames(table_1_all)) {setnames(table_1_all, "NA", "missing")}
+    
+    # split by data type
+    table_1_test <- as.data.frame(subset(table_1_all, data_type == "test"))
+    table_1_link <- as.data.frame(subset(table_1_all, data_type == "link"))
+    table_1_dems <- as.data.frame(subset(table_1_all, data_type == "dems"))
+    
+    # drop columns of only zeroes
+    table_1_test <- as.data.table(table_1_test[,colSums(table_1_test == 0, na.rm = TRUE) != nrow(table_1_test)])
+    table_1_link <- as.data.table(table_1_link[,colSums(table_1_link == 0, na.rm = TRUE) != nrow(table_1_link)])
+    table_1_dems <- as.data.table(table_1_dems[,colSums(table_1_dems == 0, na.rm = TRUE) != nrow(table_1_dems)])
+  
+    # convert missing years to "missing"
+    table_1_test[year == "0", year := "missing"]
+    table_1_link[year == "0", year := "missing"]
+    table_1_dems[year == "0", year := "missing"]
+ 
+  ###############
+  # create DT's #
+  ###############
+    
+    # convert to datatable
+    table_1_test_dt <- datatable(table_1_test, rownames = FALSE, extensions = "KeyTable")
+    table_1_link_dt <- datatable(table_1_link, rownames = FALSE, extensions = "KeyTable")
+    table_1_dems_dt <- datatable(table_1_dems, rownames = FALSE, extensions = "KeyTable")
+    
+    ###########################
+    # highlight test outliers #
+    ###########################
+    
+      # list of vars to loop over
+      t1_test_varlist <- setdiff(colnames(table_1_test), c("data_type", "year"))
+      
+      # loop over vars
+      for (m_var in t1_test_varlist){
+
+        # set intervals
+        lower_int <- table_1_test[year != "missing", mean(get(m_var)) - mean(get(m_var))*(outlier_parm)]
+        upper_int <- table_1_test[year != "missing", mean(get(m_var)) + mean(get(m_var))*(outlier_parm)]
+        
+        # apply color scheme
+        if (is.na(lower_int)==0) {table_1_test_dt <- formatStyle(table_1_test_dt, columns = paste0(m_var), background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))}
+        
+        # trigger internal flag if outliers exists
+        # if ( (is.na(lower_int)==0) & ( (general_table[, min(get(m_var))] < lower_int) | (general_table[, max(get(m_var))] > upper_int))) {general_table_flag <- 1}
+        
+      }
+      
+    ###########################
+    # highlight dems outliers #
+    ###########################
+    
+      # list of vars to loop over
+      t1_dems_varlist <- setdiff(colnames(table_1_dems), c("data_type", "year"))
+      
+      # loop over vars
+      for (m_var in t1_dems_varlist){
+
+        # set intervals
+        lower_int <- table_1_dems[year != "missing", mean(get(m_var)) - mean(get(m_var))*(outlier_parm)]
+        upper_int <- table_1_dems[year != "missing", mean(get(m_var)) + mean(get(m_var))*(outlier_parm)]
+        
+        # apply color scheme
+        if (is.na(lower_int)==0) {table_1_dems_dt <- formatStyle(table_1_dems_dt, columns = paste0(m_var), background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))}
+        
+        # trigger internal flag if outliers exists
+        # if ( (is.na(lower_int)==0) & ( (general_table[, min(get(m_var))] < lower_int) | (general_table[, max(get(m_var))] > upper_int))) {general_table_flag <- 1}
+        
+      }
+      
+    ###########################
+    # highlight link outliers #
+    ###########################
+    
+      # list of vars to loop over
+      t1_link_varlist <- setdiff(colnames(table_1_link), c("data_type", "year"))
+      
+      # loop over vars
+      for (m_var in t1_link_varlist){
+
+        # set intervals
+        lower_int <- table_1_link[year != "missing", mean(get(m_var)) - mean(get(m_var))*(outlier_parm)]
+        upper_int <- table_1_link[year != "missing", mean(get(m_var)) + mean(get(m_var))*(outlier_parm)]
+        
+        # apply color scheme
+        if (is.na(lower_int)==0) {table_1_link_dt <- formatStyle(table_1_link_dt, columns = paste0(m_var), background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))}
+        
+        # trigger internal flag if outliers exists
+        # if ( (is.na(lower_int)==0) & ( (general_table[, min(get(m_var))] < lower_int) | (general_table[, max(get(m_var))] > upper_int))) {general_table_flag <- 1}
+        
+      }
+    
+    
+##############################
+# format data (remove grade) #
+##############################
+    
+  # subset files to unique students per year
+  sub_test <- copy(test) %>% select(ea_student_id, year) %>% ea_no_dups
+  sub_dems <- copy(dems) %>% select(ea_student_id, year) %>% ea_no_dups
+  sub_link <- copy(link) %>% select(ea_student_id, year) %>% ea_no_dups
+    
+  
+##########################################
+# TABLE 2: merge rates across data_types #
+##########################################
+  
+  # list of combos
+  type_list <- list(one=c("sub_test", "sub_dems"), two=c("sub_test", "sub_link"), three=c("sub_dems", "sub_link"))
+  
+  # initialize list
+  out_merge_rates <- NULL
+  
+  ########
+  # loop #
+  ########
+  
+  # start loop
+  for (combo in type_list) {
+    
+    # save names of datatables 
+    type_one <- combo[1]
+    type_two <- combo[2]
+    
+    # get datatables
+    set_one <- get(type_one)
+    set_two <- get(type_two)
+    
+    # save names of datatype
+    name_one <- sub("^sub_", "",type_one)
+    name_two <- sub("^sub_", "",type_two)
+    
+    ##########
+    # merges #
+    ##########
+    
+      ##############
+      # both merge #
+      ##############
+    
+        # merge 1: "both"
+        merge_1 <- ea_merge(set_one, set_two, c("ea_student_id", "year"), opt_merge_type = "both", opt_out_rate = 1)
+      
+        # save merge 1 rate
+        merge_1_rate <- merge_1$out_rate_data
+        
+        # add merge_type info
+        merge_1_rate[, merge_type := "both"]
+        
+      ###########
+      # x merge #
+      ###########
+        
+        # merge 2: "x"
+        merge_2 <- ea_merge(set_one, set_two, c("ea_student_id", "year"), opt_merge_type = "x", opt_out_rate = 1)
+      
+        # save merge 2 rate
+        merge_2_rate <- merge_2$out_rate_data
+        
+        # add merge_type info
+        merge_2_rate[, merge_type := "x"]
+        
+      ###########
+      # y merge #
+      ###########
+        
+        # merge 3: "y"
+        merge_3 <- ea_merge(set_one, set_two, c("ea_student_id", "year"), opt_merge_type = "y", opt_out_rate = 1)
+      
+        # save merge 3 rate
+        merge_3_rate <- merge_3$out_rate_data
+        
+        # add merge_type info
+        merge_3_rate[, merge_type := "y"]
+        
+      ##################
+      # stack & format #
+      ##################
+        
+        # stack
+        merge_rates <- rbind(merge_1_rate, merge_2_rate, merge_3_rate)
+ 
+        # rename vars
+        merge_rates[data_set_x == "set_one", data_set_x := paste0(name_one)]
+        merge_rates[data_set_y == "set_two", data_set_y := paste0(name_two)]
+        
+        # stack merge rates
+        if (is.null(out_merge_rates) == 1) {
+          
+          # first loop to set
+          out_merge_rates <- merge_rates
+          
+          } else {out_merge_rates <- rbind(out_merge_rates, merge_rates)} 
+
+  }
+
+  # format out_merge_rate table
+  out_merge_rates[, merge_rate := round(merge_rate*100, 2)]
+  
+  # cast merge_type wide
+  out_merge_rates <- dcast.data.table(out_merge_rates, data_set_x + data_set_y ~ paste0(merge_type, "_merge"), value.var = "merge_rate")
+  
+  # convert to datatable
+  out_merge_rates_dt <- datatable(out_merge_rates, rownames = FALSE, extensions = "KeyTable")
+  
+  
+############################################
+# TABLE 3: merge rates across years (test) #
+############################################ 
+  
+  ####################################################################################
+  # define list of all year combos (eg. list = c( 1=(15,14), 2=(14,13), 3=(13,12)) ) #
+  ####################################################################################
+  
+  # n_years in test data
+  n_years <- sort(test[, unique(year)], decreasing = TRUE)
+  
+  # initialize list
+  y_list <- list()
+  
+    # loop to create y_list
+    for (y in 1:(length(n_years) - 1)){
+  
+      # add combos to list
+      y_list[[y]] <- c(n_years[y], n_years[y+1])
+      
+    }
+  
+  ###############################################################################
+  # define list of all grade combos (eg. list = c( 1=(7,6), 2=(6,5), 3=(5,4)) ) #
+  ###############################################################################
+  
+  # n_grades in test data
+  n_grades <- sort(test[, unique(grade)], decreasing = TRUE)
+  
+  # initialize list
+  g_list <- list()
+  
+    # loop to create n_list
+    for (g in 1:(length(n_grades) - 1)){
+  
+      # add combos to list
+      g_list[[g]] <- c(n_grades[g], n_grades[g+1])
+      
+    }
+  
+  ############################################################
+  # loop over year_combos (y_list) and grade_combos (g_list) #
+  ############################################################
+  
+  # set dataset to null
+  out_test_rates <- NULL
+  
+  # y_list
+  for (year_combo in y_list) {
+    
+    # g_list
+    for (grade_combo in g_list){
+   
+      # name the datasets
+      name_d1 <- paste0("test_", year_combo[1], "_grade_", grade_combo[1])
+      name_d2 <- paste0("test_", year_combo[2], "_grade_", grade_combo[2])
+
+      # dataset 1
+      dataset_1 <- subset(test, year == year_combo[1] & grade == grade_combo[1])
+    
+      # dataset 2
+      dataset_2 <- subset(test, year == year_combo[2] & grade == grade_combo[2])
+      
+      ##################
+      # merge datasets #
+      ##################
+      
+        ##############
+        # both merge #
+        ##############
+      
+          # merge 1: "both"
+          merge_1 <- ea_merge(dataset_1, dataset_2, "ea_student_id", opt_merge_type = "both", opt_out_rate = 1)
+        
+          # save merge 1 rate
+          merge_1_rate <- merge_1$out_rate_data
+          
+          # add merge_type info
+          merge_1_rate[, merge_type := "both"]
+          
+        ###########
+        # x merge #
+        ###########
+          
+          # merge 2: "x"
+          merge_2 <- ea_merge(dataset_1, dataset_2, "ea_student_id", opt_merge_type = "x", opt_out_rate = 1)
+
+          # save merge 2 rate
+          merge_2_rate <- merge_2$out_rate_data
+          
+          # add merge_type info
+          merge_2_rate[, merge_type := "x"]
+          
+        ###########
+        # y merge #
+        ###########
+          
+          # merge 3: "y"
+          merge_3 <- ea_merge(dataset_1, dataset_2, "ea_student_id", opt_merge_type = "y", opt_out_rate = 1)
+
+          # save merge 3 rate
+          merge_3_rate <- merge_3$out_rate_data
+          
+          # add merge_type info
+          merge_3_rate[, merge_type := "y"]
+          
+        ##################
+        # stack & format #
+        ##################
+          
+          # stack
+          test_rates <- rbind(merge_1_rate, merge_2_rate, merge_3_rate)
+   
+          # rename vars
+          test_rates[data_set_x == "dataset_1", data_set_x := paste0(name_d1)]
+          test_rates[data_set_y == "dataset_2", data_set_y := paste0(name_d2)]
+          
+          # stack merge rates
+          if (is.null(out_test_rates) == 1) {
+            
+            # first loop to set
+            out_test_rates <- test_rates
+            
+            } else {out_test_rates <- rbind(out_test_rates, test_rates)}
+    }
+  }
+  
+  
+  # format out_merge_rate table
+  out_test_rates[, merge_rate := round(merge_rate*100, 2)]
+  
+  # cast merge_type wide
+  out_test_rates <- dcast.data.table(out_test_rates, data_set_x + data_set_y ~ paste0(merge_type, "_merge"), value.var = "merge_rate")
+  
+  # set "uncalculatable" cells
+  out_test_rates[is.na(x_merge)   , x_merge    := 0]
+  out_test_rates[is.na(y_merge)   , y_merge    := 0]
+  out_test_rates[is.na(both_merge), both_merge := 0]
+  
+  # convert to datatable
+  out_test_rates_dt <- datatable(out_test_rates, rownames = FALSE, extensions = "KeyTable")
+ 
+  
+#######################################################
+# TABLE 4: teacher_id merge rates across years (link) #
+####################################################### 
+  
+  # set dataset to null
+  out_link_rates <- NULL
+   
+  # only run analysis if multiple years of link data exist
+  if (length(unique(in_link$link_school_year)) > 1 ) {
+    
+    # create link dataset (with teach id)
+    sub_link <- copy(in_link) %>% select(teacher_id, link_school_year) %>% ea_no_dups
+    
+    ####################################################################################
+    # define list of all year combos (eg. list = c( 1=(15,14), 2=(14,13), 3=(13,12)) ) #
+    ####################################################################################
+    
+      # n_years in link data
+      n_years <- sort(link[, unique(year)], decreasing = TRUE)
+      
+      # initialize list
+      y_list <- list()
+      
+        # loop to create y_list
+        for (y in 1:(length(n_years) - 1)){
+      
+          # add combos to list
+          y_list[[y]] <- c(n_years[y], n_years[y+1])
+          
+        }
+     
+    ############################################################
+    # loop over year_combos (y_list) and grade_combos (g_list) #
+    ############################################################
+    
+      # y_list
+      for (year_combo in y_list) {
+             
+          # name the datasets
+          name_d1 <- paste0(year_combo[1])
+          name_d2 <- paste0(year_combo[2])
+    
+          # dataset 1
+          dataset_1 <- subset(sub_link, link_school_year == year_combo[1])
+        
+          # dataset 2
+          dataset_2 <- subset(sub_link, link_school_year == year_combo[2])
+          
+          ##################
+          # merge datasets #
+          ##################
+          
+            ##############
+            # both merge #
+            ##############
+          
+              # merge 1: "both"
+              merge_1 <- ea_merge(dataset_1, dataset_2, "teacher_id", opt_merge_type = "both", opt_out_rate = 1)
+            
+              # save merge 1 rate
+              merge_1_rate <- merge_1$out_rate_data
+              
+              # add merge_type info
+              merge_1_rate[, merge_type := "both"]
+              
+            ###########
+            # x merge #
+            ###########
+              
+              # merge 2: "x"
+              merge_2 <- ea_merge(dataset_1, dataset_2, "teacher_id", opt_merge_type = "x", opt_out_rate = 1)
+    
+              # save merge 2 rate
+              merge_2_rate <- merge_2$out_rate_data
+              
+              # add merge_type info
+              merge_2_rate[, merge_type := "x"]
+              
+            ###########
+            # y merge #
+            ###########
+              
+              # merge 3: "y"
+              merge_3 <- ea_merge(dataset_1, dataset_2, "teacher_id", opt_merge_type = "y", opt_out_rate = 1)
+    
+              # save merge 3 rate
+              merge_3_rate <- merge_3$out_rate_data
+              
+              # add merge_type info
+              merge_3_rate[, merge_type := "y"]
+              
+            ##################
+            # stack & format #
+            ##################
+              
+              # stack
+              link_rates <- rbind(merge_1_rate, merge_2_rate, merge_3_rate)
+       
+              # rename vars
+              link_rates[data_set_x == "dataset_1", data_set_x := paste0(name_d1)]
+              link_rates[data_set_y == "dataset_2", data_set_y := paste0(name_d2)]
+              
+              # stack merge rates
+              if (is.null(out_link_rates) == 1) {
+                
+                # first loop to set
+                out_link_rates <- link_rates
+                
+                } else {out_link_rates <- rbind(out_link_rates, link_rates)}
+        
+      }
+      
+      
+      # format out_merge_rate table
+      out_link_rates[, merge_rate := round(merge_rate*100, 2)]
+      
+      # cast merge_type wide
+      out_link_rates <- dcast.data.table(out_link_rates, data_set_x + data_set_y ~ paste0(merge_type, "_merge"), value.var = "merge_rate")
+          
+      # set "uncalculatable" cells
+      out_link_rates[is.na(x_merge)   , x_merge    := 0]
+      out_link_rates[is.na(y_merge)   , y_merge    := 0]
+      out_link_rates[is.na(both_merge), both_merge := 0]
+      
+      # convert to datatable
+      out_link_rates_dt <- datatable(out_link_rates, rownames = FALSE, extensions = "KeyTable")
+     
+    }
+
+
+```
+
+<br>
+
+## Reference Tables
+
+`r '#### n unique students per grade'`
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+table_1_test_dt
+
+table_1_link_dt
+
+table_1_dems_dt
+
+```
+
+
+
+## Merge Rates
+
+<br>
+
+`r '#### across data-type student_id merge rates' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+out_merge_rates_dt
+
+```
+
+<br>
+
+`r '#### Cohort (across grade & year) student_id merge rates (test data)' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+out_test_rates_dt
+
+```
+
+<br>
+
+
+`r if (is.null(out_link_rates)==0) '#### teacher_id merge rates across years (link data)' `
+```{r, echo = FALSE,  fig.align='left', fig.width=10, comment=NULL}
+
+if (is.null(out_link_rates)==0) {out_link_rates_dt}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

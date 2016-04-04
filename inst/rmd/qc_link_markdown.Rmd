@@ -1,0 +1,764 @@
+---
+title: "QC on Linkage data"
+author: "Education Analytics"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: journal
+    toc: yes
+    self_contained: no
+params:
+  file_name: x
+  outlier_parm: x
+  missing_parm: x
+  duplicate_parm: x
+  by_parm: x
+  across_years_parm: x
+  min_students_parm: x
+  
+  
+---   
+
+---
+
+
+```{r, echo=FALSE, include=FALSE}
+
+# load packages 
+library(data.table)
+library(DT)
+library(easimple)
+
+# create copy of dems data
+in_link <- copy(params$file_name)
+
+###################
+# save parameters #
+###################
+
+  # interval parameter
+  outlier_parm <- params$outlier_parm
+  
+  # duplicate parameter
+  dup_parm <- params$duplicate_parm
+
+  # threshold for % of missing...
+  missing_parm <- params$missing_parm
+  
+  # level to evaluate linkage at -> school or district
+  by_parm <- params$by_parm
+  
+  # when comparing n_students across years, this parm flags schools or districts where the n_students is outside of [ (1/(number of years) *100) +/- across_years_parm]
+  across_years_parm <- params$across_years_parm
+
+  # min number of students a teacher can be linked to without getting flagged
+  min_students <- params$min_students_parm
+
+  # set colors
+  c_good    <- "white"
+  c_warning <- "#FFEB9C"
+  c_problem <- "#FFC7CE"
+  
+######################
+# general formatting #
+######################
+  
+  # convert NA grades to 99
+  in_link[is.na(student_grade), student_grade:=99]
+  
+  # make student_grade two characters
+  in_link[nchar(as.character(student_grade)) == 1 & !grepl("k", student_grade), student_grade := paste0(0, student_grade)]
+  
+  # create sub_link, removing exact duplicates
+  sub_link <- ea_no_dups(in_link, opt_key_all = 1)
+  
+################
+# create lists #
+################
+  
+  # list of years
+  year_list <- unique(in_link$link_school_year)
+  
+  # sort year list high to low
+  year_list <- sort(year_list, decreasing=TRUE)
+  
+  # list of grades
+  grade_list <- unique(in_link$student_grade)
+  
+  # sort grade list low to high
+  grade_list <- sort(grade_list, decreasing=FALSE)
+  
+  # put k and pk on front end of list if they exists
+  if ( ("k" %chin% grade_list) & ("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("k", "pk"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("pk", "k", other_grades)}
+  
+  # put k on front end of list if they exists
+  if ( ("k" %chin% grade_list) & !("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("k"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("k", other_grades)}
+  
+  # put pk on front end of list if they exists
+  if ( !("k" %chin% grade_list) & ("pk" %chin% grade_list)) { 
+    other_grades <- setdiff(grade_list, c("pk"))
+    other_grades <- sort(other_grades, decreasing=FALSE)
+    grade_list   <- c("pk", other_grades)}
+    
+
+################################
+# calculate across_years_parms #
+################################
+  
+  # lower year interval
+  low_year_int <- ( (1/length(year_list))*100 - (across_years_parm))
+  
+  # upper year interval
+  hi_year_int <- ( (1/length(year_list))*100 + (across_years_parm))
+  
+ 
+######################################
+# determine by variables (in_by_var) #
+######################################
+  
+  # school level
+  if (by_parm=="school") {
+    
+    # set by_vars
+    by_var_1 <- "link_school_name"
+    by_var_2 <- "link_school_id"
+  }
+  
+  # district level
+  if (by_parm=="district") {
+    
+    # set by_vars
+    by_var_1 <- "link_district_name"
+    by_var_2 <- "link_district_id"
+  }
+    
+  # set by_var_names
+  by_var_name_1 <- ea_scan(by_var_1, 2, "link_")
+  by_var_name_2 <- ea_scan(by_var_2, 2, "link_")
+
+
+##########################
+# TABLE 1: GENERAL TABLE #
+##########################  
+  
+  # create general table
+  general_table <- sub_link[, list(total_n_obs        = .N,
+                                   n_unique_students  = length(unique(ea_student_id)),
+                                   n_unique_teachers  = length(unique(teacher_id)),
+                                   n_by_var_1         = length(unique(get(by_var_1))),
+                                   n_by_var_2         = length(unique(get(by_var_2)))), by="link_school_year"]
+  
+  # setnames
+  setnames(general_table, "n_by_var_1", paste0("n_unique_", by_var_name_1))
+  setnames(general_table, "n_by_var_2", paste0("n_unique_", by_var_name_2))
+  
+  # output n_exact duplicate rows
+  exact_dups <- ea_out_dups(in_link, opt_key_all = 1)
+  
+  # calcualte number of exact rows per year
+  exact_dups_table <- exact_dups[, list(exact_dup_row=.N), by="link_school_year"]
+  
+  # merge duplicate row info onto general table
+  general_table <- ea_merge(general_table, exact_dups_table, "link_school_year", "x")
+  
+  # create a % of duplicate rows
+  general_table[, perc_exact_dup_row:= round((exact_dup_row/total_n_obs)*100, 2)]
+  
+  # make all NA values = 0
+  general_table[is.na(general_table)] <- 0
+  
+  # sort years from high to low
+  general_table <- general_table[order(-(link_school_year))]
+  
+  # rename a missing school year
+  general_table[link_school_year==0, link_school_year:="missing"]
+  
+  # convert to datatable
+  general_table_dt <- datatable(general_table, rownames = FALSE, extensions = "KeyTable")
+  
+  ##################################################################
+  # check 1.1 -> 1.4 loop through variables and highlight outliers #
+  ##################################################################
+  
+    # set general_table_flag to zero
+    general_table_flag <- 0
+    
+    # set list of vars to check in loop
+    gen_vars <- c("total_n_obs", "n_unique_students", "n_unique_teachers",  paste0("n_unique_", by_var_name_1), paste0("n_unique_", by_var_name_2))
+  
+    # flag large disparities
+    for (m_var in gen_vars){
+      
+      # set intervals
+      lower_int <- general_table[, mean(get(m_var)) - mean(get(m_var))*(outlier_parm)]
+      upper_int <- general_table[, mean(get(m_var)) + mean(get(m_var))*(outlier_parm)]
+      
+      # apply color scheme
+      if (is.na(lower_int)==0) {general_table_dt <- formatStyle(general_table_dt, columns = paste0(m_var), background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))}
+      
+      # trigger internal flag if outliers exists
+      if ( (is.na(lower_int)==0) & ( (general_table[, min(get(m_var))] < lower_int) | (general_table[, max(get(m_var))] > upper_int))) {general_table_flag <- 1}
+      
+    }
+  
+  #########################################################################
+  # check 1.5 -> % of duplicate rows is higher than the missing threshold #
+  #########################################################################
+  
+    # apply color scheme to % exact duplicate row
+    general_table_dt <- formatStyle(general_table_dt, columns = "perc_exact_dup_row", background = styleInterval(c(0, dup_parm), c(c_good, c_warning, c_problem)))
+    
+    # internal flag for general table
+    if (sum(general_table$perc_exact_dup_row, na.rm = TRUE)!=0) {
+      
+      if ( (min(general_table$perc_exact_dup_row, na.rm = TRUE) > dup_parm)) {general_table_flag <- 1}
+      
+    }
+  
+  
+####################################
+# TABLE 2: MISSING VARIABLES TABLE #
+####################################
+  
+  # create a copy of in_link as a data.frame
+  missing_vars <- as.data.frame(copy(sub_link))
+  
+  # subset test dataset to missing vars
+  missing_vars <-  missing_vars[sapply(missing_vars, function(x) all(is.na(x)))]
+  
+  # create list of all missing vars
+  miss_var_list <- colnames(missing_vars)
+  
+  # create data.table of remaining columns
+  miss_var_table <- as.data.table(colnames(sub_link))
+  
+  # setnames
+  setnames(miss_var_table, "V1", "variable")
+  
+  # create a missing flag
+  miss_var_table[, missing := ifelse(variable %chin% miss_var_list, 1,0)]
+  
+  # datatable 
+  miss_var_dt <- datatable(miss_var_table, rownames = FALSE, extensions = "Scroller", options=list(deferRender=TRUE, scrollY=400, scrollCollapse=TRUE))
+  
+  # apply color scheme: highlight missing vars
+  miss_var_dt <- formatStyle(miss_var_dt, columns = "missing", background = styleEqual(c(0, 1), c(c_good, c_problem)))
+  
+  # check 2.1 -> internal flag for list of missing vars
+  if (length(miss_var_list)>0) {
+    missing_vars_flag <- 1
+  } else { missing_vars_flag <- 0}
+  
+  
+#################################
+# TABLE 3: MISSING DATA % TABLE #
+#################################
+   
+  # create table
+  missing_table <- sub_link[ , list(total_n_obs                 = .N,
+                                    missing_student_id          = sum(is.na(ea_student_id)),
+                                    missing_teacher_id          = sum(is.na(teacher_id)),
+                                    missing_grade               = sum(is.na(student_grade)),
+                                    missing_site_course_subject = sum(is.na(site_course_subject)),
+                                    missing_ea_course_subject   = sum(is.na(ea_course_subject_unconfirmed))),
+                             by="link_school_year"]
+  
+  # add %'s to table
+  missing_table[, perc_miss_student_id     := round( (missing_student_id/total_n_obs)*100,2)]
+  missing_table[, perc_miss_teacher_id     := round( (missing_teacher_id/total_n_obs)*100,2)]
+  missing_table[, perc_miss_grade          := round( (missing_grade/total_n_obs)*100,2)]
+  missing_table[, perc_miss_site_subject   := round( (missing_site_course_subject/total_n_obs)*100,2)]
+  missing_table[, perc_miss_ea_subject     := round( (missing_ea_course_subject/total_n_obs)*100,2)]
+  
+   # sort column order
+  ea_colorder(missing_table, c("link_school_year", "total_n_obs", "missing_student_id", "perc_miss_student_id", "missing_teacher_id", "perc_miss_teacher_id",
+                               "missing_grade", "perc_miss_grade", "missing_site_course_subject", "perc_miss_site_subject", "missing_ea_course_subject", "perc_miss_ea_subject"))
+  
+  # sort years from high to low
+  missing_table <- missing_table[order(-(link_school_year))]
+  
+  # the following code pre-hides the "extra" columns and allows you to open more if you want more info
+  missing_dt <- datatable(missing_table, rownames=FALSE, extensions = 'ColVis', options = list(columnDefs = list(list(targets = c(2,4,6,8, 10), visible = FALSE)),
+                                                                                               dom = 'C<"clear">lfrtip'))
+  
+  ##################################
+  # flag large %'s of missing data #
+  ##################################
+  
+    # .i. check 3.1 -> 3.7 apply color scheme to all percent missings from "missing_table"
+    missing_dt <- formatStyle(missing_dt, columns = c("perc_miss_student_id", "perc_miss_teacher_id","perc_miss_grade", "perc_miss_site_subject","perc_miss_ea_subject"),
+                              background = styleInterval(c(0, missing_parm), c(c_good, c_warning, c_problem)))
+    
+    # internal flag for missing table
+    if ( (max(missing_table$perc_miss_student_id, na.rm = TRUE) > missing_parm) | 
+         (max(missing_table$perc_miss_teacher_id, na.rm = TRUE) > missing_parm) |  
+         (max(missing_table$perc_miss_grade, na.rm = TRUE) > missing_parm) | 
+         (max(missing_table$perc_miss_site_subject, na.rm = TRUE) > missing_parm) |
+         (max(missing_table$perc_miss_ea_subject, na.rm = TRUE) > missing_parm)) {
+   
+      missing_table_flag <- 1
+    } else {
+      missing_table_flag <- 0}  
+  
+#######################################
+# TABLE 4: GRADE DISTRIBUTION BY YEAR #
+#######################################
+  
+  # calc # students per grade
+  grade_distribution <- ea_table(sub_link, c("link_school_year", "student_grade"))
+  
+  # calc # students per year
+  grade_dist_per_year <- ea_table(sub_link, "link_school_year")
+  
+  # setnames
+  setnames(grade_dist_per_year, "count", "total_n_students")
+  
+  # cast wide
+  grade_distribution <- dcast.data.table(grade_distribution, link_school_year ~ student_grade, value.var = "count")
+  
+  # convert NA values to zero
+  grade_distribution[is.na(grade_distribution)] <- 0  
+  
+  # merge total # students per year
+  grade_distribution <- ea_merge(grade_dist_per_year, grade_distribution, "link_school_year")
+  
+  # rename a missing school year
+  grade_distribution[link_school_year==0, link_school_year:="missing"]
+  
+  # rename a missing grade
+  if ("99" %chin% grade_list) {setnames(grade_distribution, "99", "missing")}
+  
+  # calculate % missing
+  if ("99" %chin% grade_list) {grade_distribution[, perc_missing := round((missing / total_n_students)*100, 2)]}
+ 
+  # create new grade_list
+  grade_list_t4 <- copy(grade_list)
+  
+  # remove missing from grade_list
+  grade_list_t4 <- setdiff(grade_list_t4, "99")
+  
+  # set column order
+  ea_colorder(grade_distribution, c("link_school_year", "total_n_students", grade_list_t4))
+  
+  # convert to datatable
+  grade_dist_dt <- datatable(grade_distribution, rownames = FALSE, extensions = "KeyTable")
+  
+  # set flag_grade_dist to 0
+  flag_grade_dist <- 0
+  
+  ###############################################################
+  # check 4.1 loop through grade_list_t4 and highlight outliers #
+  ###############################################################
+  
+    # flag large disparities
+    for (m_grade in grade_list_t4){
+      
+      # set intervals
+      lower_int <- grade_distribution[, mean(get(m_grade)) - mean(get(m_grade))*(outlier_parm)]
+      upper_int <- grade_distribution[, mean(get(m_grade)) + mean(get(m_grade))*(outlier_parm)]
+      
+      # apply color scheme
+      if (is.na(lower_int)==0) {grade_dist_dt <- formatStyle(grade_dist_dt, columns = paste0(m_grade), background = styleInterval(c(lower_int, upper_int), c(c_problem, c_good, c_problem)))}
+      
+      # trigger internal flag if outliers exists
+      if ((is.na(lower_int)==0) & ( (grade_distribution[, min(get(m_grade))] < lower_int) | (grade_distribution[, max(get(m_grade))] > upper_int))) {flag_grade_dist <- 1}
+      
+    }
+  
+  #########################################
+  # check 4.2 perc_missing > missing parm #
+  #########################################
+  
+    if ("99" %chin% grade_list) {
+    
+      # highlight missing grades
+      grade_dist_dt <- formatStyle(grade_dist_dt, columns = "perc_missing", background = styleInterval(c(0, missing_parm), c(c_good, c_warning, c_problem)))
+      
+      # internal flag
+      if (max(grade_distribution$perc_missing, na.rm = TRUE) > missing_parm) {flag_grade_dist <- 1}
+      
+    }
+     
+  
+###############################
+# TABLE 5: STUDENTS PER LEVEL #
+###############################
+ 
+  ########################
+  # create 'level' table #
+  ########################
+  
+    # for school-level by_parameters: 
+    if (by_parm=="school") { 
+      
+        # create crosstab of sch_id & sch_name by year
+        students_per_level_table <- ea_table(sub_link, c("link_school_id", "link_school_name", "link_school_year"))
+        
+        # cast wide
+        students_per_level_table <- dcast.data.table(students_per_level_table, link_school_name + link_school_id ~ link_school_year, value.var = "count")
+        
+    }
+    
+    # for district-level by_parameters: 
+    if (by_parm=="district") { 
+      
+      # create crosstab of sch_id & sch_name by year
+      students_per_level_table <- ea_table(sub_link, c("link_district_id", "link_district_name", "link_school_year"))
+      
+      # cast wide
+      students_per_level_table <- dcast.data.table(students_per_level_table, link_district_name + link_district_id ~ link_school_year, value.var = "count")
+      
+    }
+  
+    # set NA's to zero
+    students_per_level_table[is.na(students_per_level_table)] <- 0
+    
+  ################################################
+  # loop over year_list to create 'total' column #
+  ################################################
+  
+    # set first year
+    first_year <- year_list[1]
+    
+    # for
+    for (m_year in year_list) {
+      
+      # set total equal to the first year
+      if (m_year==first_year) {students_per_level_table[, total:=get(m_year)]}
+      
+      # add following years to total
+      if (m_year!=first_year) {students_per_level_table[, total:= total + get(m_year)]}
+    }
+  
+  #####################################################
+  # loop over year_list to create 'perc_year' columns #
+  #####################################################
+    
+    # for...
+    for (m_year in year_list) {
+      
+      # add following years to total
+      students_per_level_table[, paste0("perc_", m_year):= round((get(m_year) / total)*100, 2)]
+  
+    }
+    
+    # create datatable
+    students_per_level_dt <- datatable(students_per_level_table, rownames=FALSE, extensions = c('ColVis', 'FixedHeader'), 
+                                      options = list(columnDefs = list(list(targets = c(5), visible = FALSE)), dom = 'C<"clear">lfrtip'))
+    
+  ############################################################
+  # check 5.1 loop through perc_years and highlight outliers #
+  ############################################################
+    
+    # set flag to zero
+    students_per_level_flag <- 0
+    
+    # create list of perc_years to loop over
+    perc_list <- grep("perc_", colnames(students_per_level_table), value=TRUE)
+    
+    # flag large disparities
+    for (m_perc in perc_list){
+      
+      # apply color scheme
+      students_per_level_dt <- formatStyle(students_per_level_dt, columns = paste0(m_perc), background = styleInterval(c(low_year_int, hi_year_int), c(c_problem, c_good, c_problem)))
+      
+      # trigger internal flag if outliers exists
+      if ( (students_per_level_table[, min(get(m_perc), na.rm = TRUE)] < low_year_int) | (students_per_level_table[, max(get(m_perc), na.rm = TRUE)] > hi_year_int) ) {students_per_level_flag <- 1}
+  
+    }
+    
+#################################
+# TABLE 6: STUDENTS_PER_TEACHER #
+#################################
+  
+  # make table
+  students_per_teacher <- sub_link[, list(n_students=.N), by= c("link_school_year", "teacher_id")]
+  
+  # go wide
+  students_per_teacher <- dcast.data.table(students_per_teacher, teacher_id ~ link_school_year, value.var = "n_students")
+  
+  # colorder
+  ea_colorder(students_per_teacher, c("teacher_id", year_list))
+  
+  # list of colnames to change
+  s_per_t_cols <- setdiff(colnames(students_per_teacher), "teacher_id")
+  
+  # setnames
+  setnames(students_per_teacher, s_per_t_cols, paste0("n_students_", s_per_t_cols))
+  
+  # set NA's to zero
+  students_per_teacher[is.na(students_per_teacher)] <- 0
+  
+  # create DT
+  students_per_level_dt <- datatable(students_per_teacher, rownames=FALSE, extensions = 'FixedHeader', options = list(pageLength = 10, fixedHeader = TRUE))
+
+  
+  ##############################################
+  # check low number of students for a teacher #
+  ##############################################
+  
+    # set internal flag
+    students_per_t_flag <- 0
+    
+    # list of columns to loop over
+    s_per_t_cols <- setdiff(colnames(students_per_teacher), "teacher_id")
+    
+    # flag large disparities
+    for (m_col in s_per_t_cols){
+      
+      # apply color scheme
+      students_per_teacher_dt <- formatStyle(students_per_teacher_dt, columns = paste0(m_col), background = styleInterval(c(min_students), c(c_problem, c_good)))
+      
+      # trigger internal flag if outliers exists
+      if ( (students_per_teacher[, min(get(m_col))] < min_students)) {students_per_t_flag <- 1}
+      
+    }
+  
+  
+######################################
+# TABLE 7: TEACHERS_PER_SCHOOL TABLE #
+######################################
+  
+  # initialize flag
+  flag_skip_table_7 <- 0 
+  
+  # check if no school info exists
+  if ( ("link_school_id" %chin% miss_var_list) & ("link_school_name" %chin% miss_var_list)){ flag_skip_table_7 <- 1}
+
+  # skip table 7 if no school info exists
+  if (flag_skip_table_7 == 0){
+
+    # calculate n size of school id and name
+    n_unique_sch_id   <- length(unique(sub_link$link_school_id))
+    n_unique_sch_name <- length(unique(sub_link$link_school_name))
+  
+    # set link var (if they are equal set to school name)
+    if (n_unique_sch_id > n_unique_sch_name) {
+      link_var <- "link_school_id"
+    } else { link_var <- "link_school_name"}
+   
+    # create table
+    teachers_per_school <- sub_link[, list( n_teachers                 = length(unique(teacher_id)), 
+                                            avg_n_students_per_teacher = ( round(length(unique(ea_student_id)) / length(unique(teacher_id)), 2))), by=c(paste0(link_var), "link_school_year")]
+    
+    # go wide
+    teachers_per_school <- dcast.data.table(teachers_per_school, get(paste0(link_var)) ~ link_school_year, value.var = c("n_teachers", "avg_n_students_per_teacher"))
+    
+    # set NA's to zero
+    teachers_per_school[is.na(teachers_per_school)] <- 0
+    
+    # rename link_var column
+    setnames(teachers_per_school, c("link_var"), link_var)
+    
+    # make DT
+    teachers_per_school_dt <- datatable(teachers_per_school, rownames=FALSE, extensions = c('FixedHeader'))
+    
+    }
+
+
+  
+##################
+# to be added....#
+##################
+
+# add a check for table 7
+
+
+
+
+
+```
+
+<br>
+
+
+## Flagged Checks
+*Below are all the the quality control checks that have been flagged for possible problems*
+
+<br>
+
+
+`r if (general_table_flag==1) '### general table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##########################
+# table 1: general table #
+##########################
+
+if (general_table_flag==1){general_table_dt}
+
+```
+
+<br>
+
+`r if (missing_vars_flag==1) '### missing variables' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 2: missing variables #
+##############################
+
+if (missing_vars_flag==1) {miss_var_dt}
+
+```
+
+<br>
+
+`r if (missing_table_flag==1) '### missing data percentages' `
+```{r, echo = FALSE,  fig.align='left', fig.width=10, comment=NULL}
+
+###############################
+# table 3: missing data table #
+###############################
+
+if (missing_table_flag==1) {missing_dt}
+
+```
+
+<br>
+
+`r if (flag_grade_dist==1) '### grade distribution' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+###############################
+# table 4: grade distribution #
+###############################
+
+if (flag_grade_dist==1){grade_dist_dt}
+
+```
+
+<br>
+
+`r if (students_per_level_flag==1) '### students per school or district' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+####################################################
+# table 5: students per level (school or district) #
+####################################################
+
+if (students_per_level_flag==1){students_per_level_dt}
+
+```
+
+
+<br>
+
+`r if (students_per_t_flag==1) '### students per teacher' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+#################################
+# table 6: students per teacher #
+#################################
+
+if (students_per_t_flag==1){students_per_teacher_dt}
+
+```
+
+<br>
+<br>
+
+## Unflagged Checks
+*Below are all the the qc_checks that were not flagged for possible problems*
+<br>
+
+
+`r if (general_table_flag==0) '### general table' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##########################
+# table 1: general table #
+##########################
+
+if (general_table_flag==0){general_table_dt}
+
+```
+
+
+<br>
+
+`r if (missing_vars_flag==0) '### missing variables' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+##############################
+# table 2: missing variables #
+##############################
+
+if (missing_vars_flag==0) {miss_var_dt}
+
+```
+
+<br>
+
+`r if (missing_table_flag==0) '### missing data percentages' `
+```{r, echo = FALSE,  fig.align='left', fig.width=10, comment=NULL}
+
+###############################
+# table 3: missing data table #
+###############################
+
+if (missing_table_flag==0) {missing_dt}
+
+```
+
+<br>
+
+`r if (flag_grade_dist==0) '### grade distribution' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+###############################
+# table 4: grade distribution #
+###############################
+
+if (flag_grade_dist==0){grade_dist_dt}
+
+```
+
+<br>
+
+`r if (students_per_level_flag==0) '### students per school or district' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+####################################################
+# table 5: students per level (school or district) #
+####################################################
+
+if (students_per_level_flag==0){students_per_level_dt}
+
+```
+
+<br>
+
+`r if (students_per_t_flag==0) '### students per teacher' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+#################################
+# table 6: students per teacher #
+#################################
+
+if (students_per_t_flag==0){students_per_teacher_dt}
+
+```
+
+
+<br>
+
+`r if (flag_skip_table_7==0) '### teachers per school' `
+```{r, echo = FALSE,  fig.align='center', fig.width=10, comment=NULL}
+
+################################
+# table 7: teachers per school #
+################################
+
+if (flag_skip_table_7==0){teachers_per_school_dt}
+
+```
+
+
+
